@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SENTINEL-IOT | Emergency Safety & Monitoring Station</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          animation: {
+            'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'ping-slow': 'ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar for logs and pipeline */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* Radar / Map grid pattern */
+    .map-grid {
+      background-size: 28px 28px;
+      background-image: 
+        linear-gradient(to right, rgba(56, 189, 248, 0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(56, 189, 248, 0.08) 1px, transparent 1px);
+    }
+
+    /* ECG Wave Animation */
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -200;
+      }
+    }
+    .ecg-line {
+      stroke-dasharray: 200;
+      stroke-dashoffset: 0;
+      animation: dash 3s linear infinite;
+    }
+
+    /* Range slider styling */
+    input[type=range] {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 16px;
+      width: 16px;
+      border-radius: 50%;
+      background: #10b981;
+      cursor: pointer;
+      margin-top: -6px;
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 4px;
+      cursor: pointer;
+      background: #334155;
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col selection:bg-emerald-500/30 selection:text-emerald-200">
+
+  <!-- TOP STATUS BAR -->
+  <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 shadow-lg">
+    <div class="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      
+      <!-- Brand & System Title -->
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shadow-inner">
+            <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-base sm:text-lg font-bold tracking-tight text-white">SENTINEL<span class="text-emerald-400">GUARD</span></h1>
+              <span class="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-full bg-slate-800 text-slate-300 border border-slate-700">Station v2.4</span>
+            </div>
+            <p class="text-xs text-slate-400">Wearable Telemetry &amp; Direct Web Monitoring Station</p>
+          </div>
+        </div>
+
+        <!-- Mobile System State Pill -->
+        <div id="mobileStateBadge" class="lg:hidden px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+          MONITORING
+        </div>
+      </div>
+
+      <!-- Connectivity & System State Indicators -->
+      <div class="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+        
+        <!-- Wi-Fi Source Status -->
+        <button onclick="toggleWifi()" id="wifiStatusPill" title="Click to toggle Wi-Fi discovery simulation" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 transition cursor-pointer">
+          <span class="relative flex h-2 w-2">
+            <span id="wifiPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span id="wifiDot" class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span class="font-medium">Wi-Fi: <strong id="wifiLabel" class="font-mono">CONNECTED</strong></span>
+        </button>
+
+        <!-- Cellular GSM Signal Status -->
+        <div id="gsmStatusPill" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+          </svg>
+          <span class="font-medium">GSM Signal: <strong id="gsmLabel" class="font-mono">YES (STRONG)</strong></span>
+        </div>
+
+        <!-- LoRa Gateway Status -->
+        <div id="loraStatusPill" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-300 transition">
+          <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span class="font-medium">LoRa Gateway: <strong id="loraLabel" class="font-mono text-slate-400">STANDBY</strong></span>
+        </div>
+
+        <!-- Overall Flowchart State -->
+        <div id="desktopStateBadge" class="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-mono font-semibold shadow-sm">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="systemStateText">STATE: MONITORING (START)</span>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- ACTIVE EMERGENCY BANNER (Hidden during normal monitoring) -->
+  <div id="emergencyBanner" class="hidden border-b transition-all duration-300">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="flex items-start sm:items-center gap-3">
+        <div id="bannerIcon" class="p-2 rounded-xl bg-red-500/20 text-red-400 shrink-0 mt-0.5 sm:mt-0">
+          <svg class="w-6 h-6 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <span id="bannerTag" class="px-2 py-0.5 text-xs font-mono font-bold uppercase rounded bg-red-600 text-white">911 MEDICAL DISPATCH</span>
+            <span id="bannerRouteBadge" class="px-2 py-0.5 text-xs font-mono rounded bg-slate-900/70 text-slate-200 border border-white/10">VIA DIRECT GSM</span>
+          </div>
+          <p id="bannerDescription" class="text-sm font-medium text-white mt-1">
+            GPS and PPG sensors transmitted Heartbeat, Oxygen, and Location to GSM module &amp; Web Monitoring Station. SMS sent to 911.
+          </p>
+        </div>
+      </div>
+
+      <button onclick="resetToStart()" class="shrink-0 px-4 py-2.5 rounded-xl bg-white text-slate-950 hover:bg-slate-200 font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        Resolve &amp; Loop to START
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN WORKSPACE GRID -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: WEARABLE DEVICE SIMULATOR & FLOWCHART ENGINE (5 cols on lg) -->
+    <section class="lg:col-span-5 flex flex-col gap-6">
+
+      <!-- Wearable Hardware Simulator Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-base font-bold text-white flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              Wearable Device Simulator
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Simulate hardware inputs &amp; cellular signal branches</p>
+          </div>
+          <span class="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">NODE-01</span>
+        </div>
+
+        <!-- Step 1: Cellular Signal Condition Toggle -->
+        <div class="mb-5 p-3.5 rounded-xl bg-slate-950/70 border border-slate-800">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">1. Cellular Signal Condition</span>
+            <span id="signalConditionTag" class="text-xs font-mono font-semibold text-emerald-400">Signal = YES</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="btnSignalYes" onclick="setSignal(true)" class="py-2.5 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm cursor-pointer">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+              Signal Available (GSM)
+            </button>
+            <button id="btnSignalNo" onclick="setSignal(false)" class="py-2.5 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3" /></svg>
+              No Signal (LoRa Fallback)
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Physical Push Button Triggers -->
+        <div class="mb-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">2. Hardware Push Button Triggers</span>
+            <span class="text-[11px] text-slate-500">Executes Flowchart</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- Press Once (1x) -> 911 -->
+            <button onclick="triggerEmergency(1)" class="group relative overflow-hidden p-4 rounded-xl bg-gradient-to-br from-rose-600/20 to-red-900/30 hover:from-rose-600/30 hover:to-red-900/40 border border-rose-500/40 hover:border-rose-400 text-left transition-all active:scale-[0.98] shadow-md cursor-pointer">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-mono text-xs font-bold border border-rose-500/30">PRESS 1x</span>
+                <svg class="w-5 h-5 text-rose-400 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+              </div>
+              <div class="font-bold text-sm text-white">Medical / 911 Alert</div>
+              <div class="text-[11px] text-rose-200/80 mt-0.5">Sends vitals &amp; GPS to 911 + Station</div>
+            </button>
+
+            <!-- Press Twice (2x) -> Police -->
+            <button onclick="triggerEmergency(2)" class="group relative overflow-hidden p-4 rounded-xl bg-gradient-to-br from-blue-600/20 to-indigo-900/30 hover:from-blue-600/30 hover:to-indigo-900/40 border border-blue-500/40 hover:border-blue-400 text-left transition-all active:scale-[0.98] shadow-md cursor-pointer">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 font-mono text-xs font-bold border border-blue-500/30">PRESS 2x</span>
+                <svg class="w-5 h-5 text-blue-400 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+              </div>
+              <div class="font-bold text-sm text-white">Police / Security Alert</div>
+              <div class="text-[11px] text-blue-200/80 mt-0.5">Sends vitals &amp; GPS to Police + Station</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 3: Live PPG & GPS Sensor Adjustments -->
+        <div class="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">3. PPG &amp; GPS Sensor Inputs</span>
+            <div class="flex gap-1.5">
+              <button onclick="applyPreset('normal')" class="px-2 py-0.5 text-[11px] rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 cursor-pointer">Normal</button>
+              <button onclick="applyPreset('critical')" class="px-2 py-0.5 text-[11px] rounded bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 cursor-pointer">Distress</button>
+            </div>
+          </div>
+
+          <!-- Heartbeat Slider -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">PPG Heartbeat (BPM)</span>
+              <span id="simBpmVal" class="font-mono font-bold text-emerald-400">78 BPM</span>
+            </div>
+            <input id="bpmSlider" type="range" min="40" max="185" value="78" oninput="updateSensors()" class="w-full">
+          </div>
+
+          <!-- Oxygen SpO2 Slider -->
+          <div>
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300">PPG Blood Oxygen (SpO2 %)</span>
+              <span id="simSpo2Val" class="font-mono font-bold text-sky-400">98%</span>
+            </div>
+            <input id="spo2Slider" type="range" min="75" max="100" value="98" oninput="updateSensors()" class="w-full">
+          </div>
+
+          <!-- GPS Location Preset Selector -->
+          <div>
+            <label for="gpsSelect" class="block text-xs text-slate-300 mb-1">GPS Module Coordinates</label>
+            <select id="gpsSelect" onchange="updateSensors()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500">
+              <option value="0">15.1450° N, 120.5887° E — Angeles City, Central Luzon</option>
+              <option value="1">15.1725° N, 120.5310° E — Clark Freeport Zone, Pampanga</option>
+              <option value="2">15.0286° N, 120.6898° E — City of San Fernando, Pampanga</option>
+              <option value="3">14.5995° N, 120.9842° E — Metro Manila Sector 4</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE FLOWCHART EXECUTION PIPELINE TRACKER -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex-1 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-base font-bold text-white">Flowchart Logic Pipeline</h2>
+            <p class="text-xs text-slate-400">Real-time execution path (Web Station Direct)</p>
+          </div>
+          <button onclick="resetToStart()" class="text-xs font-mono px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 transition cursor-pointer">
+            ↻ Loop START
+          </button>
+        </div>
+
+        <!-- Visual Flowchart Steps -->
+        <div id="flowchartStepsContainer" class="space-y-2.5 text-xs flex-1">
+          <!-- Step 1: START -->
+          <div id="node-start" class="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-between transition-all">
+            <div class="flex items-center gap-2.5">
+              <span class="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-mono font-bold text-[10px]">START</span>
+              <span class="font-medium text-emerald-200">System Initialized &amp; Active</span>
+            </div>
+            <span class="text-[11px] font-mono text-emerald-400">READY</span>
+          </div>
+
+          <!-- Step 2: Parallel Hardware & Wi-Fi Integration -->
+          <div class="grid grid-cols-2 gap-2">
+            <div id="node-sensors" class="p-2.5 rounded-xl border border-emerald-500/30 bg-slate-950/60">
+              <div class="text-[10px] font-mono text-emerald-400 uppercase mb-0.5">Inputs Active</div>
+              <div class="font-semibold text-slate-200">Push Button, PPG Sensor, GPS</div>
+            </div>
+            <div id="node-wifi" class="p-2.5 rounded-xl border border-emerald-500/30 bg-slate-950/60">
+              <div class="text-[10px] font-mono text-emerald-400 uppercase mb-0.5">Network Source</div>
+              <div id="nodeWifiText" class="font-semibold text-slate-200">Wi-Fi Source Found &amp; Linked</div>
+            </div>
+          </div>
+
+          <!-- Step 3: Decision Gate -->
+          <div id="node-decision" class="p-3 rounded-xl border border-slate-700 bg-slate-950/80 transition-all">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] font-mono uppercase tracking-wider text-amber-400">Decision Gate</span>
+              <span id="decisionStatusBadge" class="text-[11px] font-mono text-slate-400">Awaiting Button Press...</span>
+            </div>
+            <p id="decisionConditionText" class="text-slate-300 font-medium">
+              Evaluating: <span class="font-mono text-white">(Button == 1x OR 2x) &amp;&amp; (Signal == YES/NO)</span>
+            </p>
+          </div>
+
+          <!-- Step 4: Routing & Transmission Process -->
+          <div id="node-process" class="p-3 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-400 transition-all">
+            <div class="text-[10px] font-mono uppercase tracking-wider mb-1 text-slate-500">Transmission &amp; Relay Process</div>
+            <p id="processStepText" class="leading-relaxed">
+              Standby. Sensors polling Heartbeat, SpO2, and GPS coordinates continuously.
+            </p>
+          </div>
+
+          <!-- Step 5: Station & SMS Output Confirmation -> END -->
+          <div id="node-output" class="p-3 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-400 transition-all">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500">Final Output &amp; END Loop</span>
+              <span id="endLoopBadge" class="hidden px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-[10px]">END → START READY</span>
+            </div>
+            <p id="outputStepText" class="leading-relaxed">
+              Monitoring Station ready to display incoming emergency vitals and SMS dispatch confirmation.
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: LIVE MONITORING STATION DISPLAY (7 cols on lg) -->
+    <section class="lg:col-span-7 flex flex-col gap-6">
+
+      <!-- TOP VITALS ROW: Heartbeat BPM & Blood Oxygen SpO2 -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        
+        <!-- Heartbeat BPM Telemetry Card -->
+        <div id="heartCard" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden transition-all">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <div class="p-2 rounded-xl bg-rose-500/15 text-rose-400">
+                <svg class="w-5 h-5 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">PPG Heartbeat</h3>
+                <span id="heartStatusText" class="text-[11px] font-mono text-emerald-400">NORMAL SINUS</span>
+              </div>
+            </div>
+            <span class="text-xs font-mono text-slate-500">LIVE</span>
+          </div>
+
+          <div class="flex items-baseline gap-2 my-2">
+            <span id="displayBpm" class="text-4xl sm:text-5xl font-extrabold font-mono text-white tracking-tight">78</span>
+            <span class="text-sm font-semibold text-slate-400">BPM</span>
+          </div>
+
+          <!-- Animated SVG ECG Waveform -->
+          <div class="h-12 w-full bg-slate-950/80 rounded-xl border border-slate-800/80 px-2 flex items-center overflow-hidden">
+            <svg class="w-full h-9" viewBox="0 0 300 40" fill="none" preserveAspectRatio="none">
+              <path id="ecgPath" class="ecg-line" d="M0 20 L40 20 L48 14 L55 26 L62 4 L70 36 L78 18 L85 20 L140 20 L148 14 L155 26 L162 4 L170 36 L178 18 L185 20 L240 20 L248 14 L255 26 L262 4 L270 36 L278 18 L285 20 L300 20" stroke="#fb7185" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Blood Oxygen SpO2 Card -->
+        <div id="spo2Card" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden transition-all">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <div class="p-2 rounded-xl bg-sky-500/15 text-sky-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Blood Oxygen</h3>
+                <span id="spo2StatusText" class="text-[11px] font-mono text-emerald-400">OPTIMAL SATURATION</span>
+              </div>
+            </div>
+            <span class="text-xs font-mono text-slate-500">SpO2</span>
+          </div>
+
+          <div class="flex items-baseline gap-2 my-2">
+            <span id="displaySpo2" class="text-4xl sm:text-5xl font-extrabold font-mono text-white tracking-tight">98</span>
+            <span class="text-sm font-semibold text-slate-400">%</span>
+          </div>
+
+          <!-- SpO2 Gauge Bar -->
+          <div class="mt-3">
+            <div class="flex justify-between text-[10px] font-mono text-slate-400 mb-1">
+              <span>75% CRIT</span>
+              <span>90% LOW</span>
+              <span>100% MAX</span>
+            </div>
+            <div class="w-full h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800 p-0.5">
+              <div id="spo2Bar" class="h-full bg-gradient-to-r from-sky-500 to-emerald-400 rounded-full transition-all duration-300" style="width: 92%;"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- GPS LOCATION TRACKER CARD -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-xl bg-emerald-500/15 text-emerald-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-white">Live GPS Telemetry &amp; Sector Radar</h3>
+              <p id="displayLocationName" class="text-xs text-slate-400">Angeles City, Central Luzon</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span id="displayCoords" class="px-3 py-1 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400">
+              15.1450° N, 120.5887° E
+            </span>
+            <button onclick="copyCoords()" title="Copy Coordinates" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Interactive Tactical Radar Map -->
+        <div class="relative h-48 sm:h-52 w-full rounded-xl bg-slate-950 border border-slate-800 map-grid overflow-hidden flex items-center justify-center">
+          <!-- Radar concentric circles -->
+          <div class="absolute w-72 h-72 rounded-full border border-emerald-500/10"></div>
+          <div class="absolute w-48 h-48 rounded-full border border-emerald-500/15"></div>
+          <div class="absolute w-24 h-24 rounded-full border border-emerald-500/20"></div>
+          
+          <!-- Crosshairs -->
+          <div class="absolute inset-x-0 h-px bg-emerald-500/10"></div>
+          <div class="absolute inset-y-0 w-px bg-emerald-500/10"></div>
+
+          <!-- Simulated Roads / Sectors SVG -->
+          <svg class="absolute inset-0 w-full h-full opacity-25" viewBox="0 0 400 200" preserveAspectRatio="none">
+            <path d="M0 140 Q 120 110, 220 95 T 400 50" stroke="#38bdf8" stroke-width="2" fill="none" stroke-dasharray="4 4"/>
+            <path d="M80 0 L 160 200" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+            <path d="M270 0 L 230 200" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+          </svg>
+
+          <!-- Dynamic GPS Pin Marker -->
+          <div id="mapPinWrapper" class="relative z-10 flex flex-col items-center transition-all duration-500" style="transform: translate(0px, 0px);">
+            <div class="px-2.5 py-1 rounded-lg bg-slate-900/95 border border-slate-700 text-[10px] font-mono text-white shadow-lg mb-1.5 whitespace-nowrap">
+              <span id="pinStatusLabel" class="text-emerald-400 font-bold">● TRACKING</span> • <span id="pinShortCoords">15.1450, 120.5887</span>
+            </div>
+            <div class="relative flex items-center justify-center">
+              <span id="pinPulseRing" class="animate-ping-slow absolute inline-flex h-8 w-8 rounded-full bg-emerald-400 opacity-50"></span>
+              <span id="pinCoreDot" class="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border-2 border-white shadow-md"></span>
+            </div>
+          </div>
+
+          <!-- Bottom Map Overlay Info -->
+          <div class="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-[10px] font-mono text-slate-400 pointer-events-none">
+            <span>SAT-LOCK: 9 SATELLITES (3D FIX)</span>
+            <span id="relayModeMapTag" class="text-emerald-400">LINK: DIRECT GSM / WI-FI</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- GSM SMS DISPATCH TERMINAL & INCIDENT HISTORY -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex-1 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            <div>
+              <h3 class="text-sm font-bold text-white">GSM SMS Dispatch &amp; Station Telemetry Log</h3>
+              <p class="text-xs text-slate-400">Automated SMS alerts to 911 / Police &amp; Station records</p>
+            </div>
+          </div>
+          <button onclick="clearLogs()" class="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition cursor-pointer">
+            Clear Log
+          </button>
+        </div>
+
+        <!-- Terminal Log Window -->
+        <div id="dispatchLogContainer" class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 font-mono text-xs space-y-3 max-h-64 overflow-y-auto flex-1">
+          <!-- Initial Boot Log -->
+          <div class="border-l-2 border-emerald-500 pl-3 py-0.5">
+            <div class="flex items-center justify-between text-[11px] text-slate-500">
+              <span>[SYSTEM BOOT] START NODE</span>
+              <span id="bootTimestamp">--:--:--</span>
+            </div>
+            <div class="text-emerald-400 mt-0.5">
+              ✓ Push button, PPG sensor, and GPS initialized. Wi-Fi source discovered and connected to Web Monitoring Station.
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- TOAST NOTIFICATION (Replaces alert()) -->
+  <div id="toastNotification" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+    <div class="bg-slate-800 border border-slate-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-medium">
+      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+      <span id="toastMessage">Coordinates copied to clipboard</span>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC -->
+  <script>
+    // Predefined GPS Locations for Simulation
+    const gpsLocations = [
+      { name: "Angeles City, Central Luzon", coords: "15.1450° N, 120.5887° E", short: "15.1450, 120.5887", x: 0, y: 0 },
+      { name: "Clark Freeport Zone, Pampanga", coords: "15.1725° N, 120.5310° E", short: "15.1725, 120.5310", x: -45, y: -25 },
+      { name: "City of San Fernando, Pampanga", coords: "15.0286° N, 120.6898° E", short: "15.0286, 120.6898", x: 50, y: 30 },
+      { name: "Metro Manila Sector 4", coords: "14.5995° N, 120.9842° E", short: "14.5995, 120.9842", x: 75, y: 48 }
+    ];
+
+    // System State
+    let state = {
+      wifiConnected: true,
+      hasCellularSignal: true,
+      bpm: 78,
+      spo2: 98,
+      locationIndex: 0,
+      activeAlert: null // null | '911' | 'POLICE'
+    };
+
+    // Initialize timestamps on load
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('bootTimestamp').textContent = getCurrentTime();
+      updateSensors();
+    });
+
+    function getCurrentTime() {
+      const now = new Date();
+      return now.toTimeString().split(' ')[0];
+    }
+
+    // Show non-intrusive toast message
+    function showToast(msg) {
+      const toast = document.getElementById('toastNotification');
+      document.getElementById('toastMessage').textContent = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 2600);
+    }
+
+    // Copy GPS Coordinates using safe execCommand fallback
+    function copyCoords() {
+      const text = gpsLocations[state.locationIndex].coords;
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        showToast(`Copied GPS: ${text}`);
+      } catch (err) {
+        showToast('Unable to copy coordinates');
+      }
+      document.body.removeChild(textarea);
+    }
+
+    // Toggle Wi-Fi Source Integration
+    function toggleWifi() {
+      state.wifiConnected = !state.wifiConnected;
+      const pill = document.getElementById('wifiStatusPill');
+      const label = document.getElementById('wifiLabel');
+      const ping = document.getElementById('wifiPing');
+      const dot = document.getElementById('wifiDot');
+      const nodeWifi = document.getElementById('node-wifi');
+      const nodeWifiText = document.getElementById('nodeWifiText');
+
+      if (state.wifiConnected) {
+        pill.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 transition cursor-pointer";
+        label.textContent = "CONNECTED";
+        ping.classList.remove('hidden');
+        dot.className = "relative inline-flex rounded-full h-2 w-2 bg-emerald-500";
+        nodeWifi.className = "p-2.5 rounded-xl border border-emerald-500/30 bg-slate-950/60";
+        nodeWifiText.textContent = "Wi-Fi Source Found & Linked";
+        addLogEntry("NETWORK", "Wi-Fi source discovered and connected to Monitoring Station.", "emerald");
+      } else {
+        pill.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition cursor-pointer";
+        label.textContent = "SEARCHING...";
+        ping.classList.add('hidden');
+        dot.className = "relative inline-flex rounded-full h-2 w-2 bg-amber-500";
+        nodeWifi.className = "p-2.5 rounded-xl border border-amber-500/40 bg-amber-950/20";
+        nodeWifiText.textContent = "Scanning for Wi-Fi Source...";
+        addLogEntry("NETWORK", "Wi-Fi link interrupted. Scanning for local Wi-Fi source...", "amber");
+      }
+    }
+
+    // Toggle Cellular Signal (YES vs NO -> LoRa Fallback)
+    function setSignal(hasSignal) {
+      state.hasCellularSignal = hasSignal;
+
+      const btnYes = document.getElementById('btnSignalYes');
+      const btnNo = document.getElementById('btnSignalNo');
+      const condTag = document.getElementById('signalConditionTag');
+      const gsmPill = document.getElementById('gsmStatusPill');
+      const gsmLabel = document.getElementById('gsmLabel');
+      const loraPill = document.getElementById('loraStatusPill');
+      const loraLabel = document.getElementById('loraLabel');
+      const relayMapTag = document.getElementById('relayModeMapTag');
+
+      if (hasSignal) {
+        btnYes.className = "py-2.5 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm cursor-pointer";
+        btnNo.className = "py-2.5 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer";
+        condTag.textContent = "Signal = YES";
+        condTag.className = "text-xs font-mono font-semibold text-emerald-400";
+
+        gsmPill.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 transition";
+        gsmLabel.textContent = "YES (STRONG)";
+
+        loraPill.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-slate-300 transition";
+        loraLabel.textContent = "STANDBY";
+        loraLabel.className = "font-mono text-slate-400";
+
+        relayMapTag.textContent = "LINK: DIRECT GSM / WI-FI";
+        relayMapTag.className = "text-emerald-400";
+      } else {
+        btnNo.className = "py-2.5 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm cursor-pointer";
+        btnYes.className = "py-2.5 px-3 rounded-xl text-xs font-semibold border transition flex items-center justify-center gap-2 bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer";
+        condTag.textContent = "Signal = NO (LoRa)";
+        condTag.className = "text-xs font-mono font-semibold text-amber-400";
+
+        gsmPill.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 transition";
+        gsmLabel.textContent = "NO SIGNAL";
+
+        loraPill.className = "flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 transition";
+        loraLabel.textContent = "ARMED (GATEWAY READY)";
+        loraLabel.className = "font-mono text-amber-300";
+
+        relayMapTag.textContent = "LINK: LORA MODULE → GATEWAY";
+        relayMapTag.className = "text-amber-400";
+      }
+    }
+
+    // Apply Quick Sensor Presets
+    function applyPreset(type) {
+      const bpmSlider = document.getElementById('bpmSlider');
+      const spo2Slider = document.getElementById('spo2Slider');
+      if (type === 'normal') {
+        bpmSlider.value = 76;
+        spo2Slider.value = 99;
+      } else {
+        bpmSlider.value = 148;
+        spo2Slider.value = 88;
+      }
+      updateSensors();
+    }
+
+    // Update Sensor Readings across Simulator & Monitoring Station
+    function updateSensors() {
+      state.bpm = parseInt(document.getElementById('bpmSlider').value, 10);
+      state.spo2 = parseInt(document.getElementById('spo2Slider').value, 10);
+      state.locationIndex = parseInt(document.getElementById('gpsSelect').value, 10);
+
+      // Update Simulator Labels
+      document.getElementById('simBpmVal').textContent = `${state.bpm} BPM`;
+      document.getElementById('simSpo2Val').textContent = `${state.spo2}%`;
+
+      // Update Station Heartbeat Card
+      document.getElementById('displayBpm').textContent = state.bpm;
+      const heartStatus = document.getElementById('heartStatusText');
+      const ecgLine = document.getElementById('ecgPath');
+      if (state.bpm > 115 || state.bpm < 50) {
+        heartStatus.textContent = state.bpm > 115 ? "TACHYCARDIA ALERT" : "BRADYCARDIA ALERT";
+        heartStatus.className = "text-[11px] font-mono text-rose-400 font-bold";
+        ecgLine.style.animationDuration = "1.2s";
+      } else {
+        heartStatus.textContent = "NORMAL SINUS";
+        heartStatus.className = "text-[11px] font-mono text-emerald-400";
+        ecgLine.style.animationDuration = "3s";
+      }
+
+      // Update Station SpO2 Card
+      document.getElementById('displaySpo2').textContent = state.spo2;
+      const spo2Status = document.getElementById('spo2StatusText');
+      const spo2Bar = document.getElementById('spo2Bar');
+      const pct = Math.max(5, Math.min(100, ((state.spo2 - 75) / 25) * 100));
+      spo2Bar.style.width = `${pct}%`;
+
+      if (state.spo2 < 92) {
+        spo2Status.textContent = "HYPOXIA WARNING";
+        spo2Status.className = "text-[11px] font-mono text-amber-400 font-bold";
+        spo2Bar.className = "h-full bg-gradient-to-r from-rose-500 to-amber-400 rounded-full transition-all duration-300";
+      } else {
+        spo2Status.textContent = "OPTIMAL SATURATION";
+        spo2Status.className = "text-[11px] font-mono text-emerald-400";
+        spo2Bar.className = "h-full bg-gradient-to-r from-sky-500 to-emerald-400 rounded-full transition-all duration-300";
+      }
+
+      // Update GPS Location & Radar Pin
+      const loc = gpsLocations[state.locationIndex];
+      document.getElementById('displayLocationName').textContent = loc.name;
+      document.getElementById('displayCoords').textContent = loc.coords;
+      document.getElementById('pinShortCoords').textContent = loc.short;
+      document.getElementById('mapPinWrapper').style.transform = `translate(${loc.x}px, ${loc.y}px)`;
+    }
+
+    // Execute Exact Flowchart Branch on Button Press (1x or 2x)
+    function triggerEmergency(pressCount) {
+      const isMedical = pressCount === 1;
+      const targetAgency = isMedical ? "911" : "Police";
+      const hasSig = state.hasCellularSignal;
+      const loc = gpsLocations[state.locationIndex];
+
+      state.activeAlert = isMedical ? '911' : 'POLICE';
+
+      // Update Top State Badges
+      const stateText = isMedical
+        ? `ALERT: 911 DISPATCH (${hasSig ? 'GSM' : 'LORA'})`
+        : `ALERT: POLICE DISPATCH (${hasSig ? 'GSM' : 'LORA'})`;
+      document.getElementById('systemStateText').textContent = stateText;
+      document.getElementById('mobileStateBadge').textContent = isMedical ? "911 ALERT" : "POLICE ALERT";
+
+      const desktopBadge = document.getElementById('desktopStateBadge');
+      const mobileBadge = document.getElementById('mobileStateBadge');
+      if (isMedical) {
+        desktopBadge.className = "hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/50 text-rose-300 font-mono font-semibold shadow-sm";
+        mobileBadge.className = "lg:hidden px-3 py-1 rounded-full text-xs font-mono font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/40";
+      } else {
+        desktopBadge.className = "hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-500/20 border border-blue-500/50 text-blue-300 font-mono font-semibold shadow-sm";
+        mobileBadge.className = "lg:hidden px-3 py-1 rounded-full text-xs font-mono font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40";
+      }
+
+      // Update Radar Pin Visuals to Alert Mode
+      const pinStatus = document.getElementById('pinStatusLabel');
+      const pinPulse = document.getElementById('pinPulseRing');
+      const pinCore = document.getElementById('pinCoreDot');
+      pinStatus.textContent = isMedical ? "▲ 911 SOS" : "▲ POLICE SOS";
+      pinStatus.className = isMedical ? "text-rose-400 font-bold" : "text-blue-400 font-bold";
+      pinPulse.className = `animate-ping absolute inline-flex h-10 w-10 rounded-full ${isMedical ? 'bg-rose-500' : 'bg-blue-500'} opacity-75`;
+      pinCore.className = `relative inline-flex rounded-full h-4 w-4 ${isMedical ? 'bg-rose-500' : 'bg-blue-500'} border-2 border-white shadow-md`;
+
+      // Exact Flowchart Text Mapping (Skipping Blynk, routing straight to Monitoring Station)
+      let decisionText = "";
+      let processText = "";
+      let outputText = "";
+      let bannerDesc = "";
+      let routeBadgeText = "";
+
+      if (isMedical && hasSig) {
+        // Branch 1: Button Pressed Once && Signal = YES
+        decisionText = "If button is pressed once && if there is signal → YES";
+        processText = "GPS and PPG sensors sent data directly to the GSM module and Monitoring Station. The GSM module sent that data (Heartbeat, Oxygen, Location) to 911 via SMS, while the Monitoring Station displays it live.";
+        outputText = "CONFIRMED: GPS and PPG sensors have sent data to GSM module and Monitoring Station. GSM module has sent (Heartbeat, Oxygen, Location) to 911 via SMS, and Monitoring Station has displayed it.";
+        bannerDesc = "Button Pressed 1x (Signal YES): Vitals & GPS sent to GSM & Monitoring Station. SMS dispatched to 911.";
+        routeBadgeText = "DIRECT GSM → 911 & STATION";
+      } else if (isMedical && !hasSig) {
+        // Branch 2: Button Pressed Once && Signal = NO
+        decisionText = "If button is pressed once && if there is signal → NO (LoRa Fallback)";
+        processText = "GPS and PPG sensors sent data to LoRa module. LoRa transmitted it to a LoRa gateway. The gateway forwarded it to GSM and Monitoring Station, where GSM sent it to 911 through SMS.";
+        outputText = "CONFIRMED: LoRa gateway forwarded telemetry to GSM and Monitoring Station. GSM has sent (Heartbeat, Oxygen, Location) to 911 through SMS, and Monitoring Station displayed it.";
+        bannerDesc = "Button Pressed 1x (No Signal): LoRa Module → LoRa Gateway → GSM & Monitoring Station. SMS dispatched to 911.";
+        routeBadgeText = "LORA → GATEWAY → GSM (911)";
+      } else if (!isMedical && hasSig) {
+        // Branch 3: Button Pressed Twice && Signal = YES
+        decisionText = "If button is pressed twice && if there is signal → YES";
+        processText = "GPS and PPG sensors sent data directly to the GSM module and Monitoring Station. The GSM module sent that data (Heartbeat, Oxygen, Location) to the Police via SMS, while the Monitoring Station displays it live.";
+        outputText = "CONFIRMED: GPS and PPG sensors have sent data to GSM module and Monitoring Station. GSM module has sent (Heartbeat, Oxygen, Location) to the Police via SMS, and Monitoring Station has displayed it.";
+        bannerDesc = "Button Pressed 2x (Signal YES): Vitals & GPS sent to GSM & Monitoring Station. SMS dispatched to Police.";
+        routeBadgeText = "DIRECT GSM → POLICE & STATION";
+      } else {
+        // Branch 4: Button Pressed Twice && Signal = NO
+        decisionText = "If button is pressed twice && if there is signal → NO (LoRa Fallback)";
+        processText = "GPS and PPG sensors sent data to LoRa module. LoRa transmitted it to a LoRa gateway. The gateway forwarded it to GSM and Monitoring Station, where GSM sent it to Police through SMS.";
+        outputText = "CONFIRMED: LoRa gateway forwarded telemetry to GSM and Monitoring Station. GSM has sent (Heartbeat, Oxygen, Location) to the Police through SMS, and Monitoring Station displayed it.";
+        bannerDesc = "Button Pressed 2x (No Signal): LoRa Module → LoRa Gateway → GSM & Monitoring Station. SMS dispatched to Police.";
+        routeBadgeText = "LORA → GATEWAY → GSM (POLICE)";
+      }
+
+      // Highlight Flowchart Pipeline Nodes
+      const nodeDecision = document.getElementById('node-decision');
+      const nodeProcess = document.getElementById('node-process');
+      const nodeOutput = document.getElementById('node-output');
+      const accentBorder = isMedical ? "border-rose-500/50 bg-rose-950/20" : "border-blue-500/50 bg-blue-950/20";
+
+      nodeDecision.className = `p-3 rounded-xl border ${accentBorder} transition-all`;
+      document.getElementById('decisionStatusBadge').textContent = `BRANCH ${isMedical ? '1x' : '2x'} • ${hasSig ? 'GSM' : 'LORA'}`;
+      document.getElementById('decisionStatusBadge').className = `text-[11px] font-mono font-bold ${isMedical ? 'text-rose-400' : 'text-blue-400'}`;
+      document.getElementById('decisionConditionText').textContent = decisionText;
+
+      nodeProcess.className = `p-3 rounded-xl border ${hasSig ? accentBorder : 'border-amber-500/50 bg-amber-950/20'} text-slate-200 transition-all`;
+      document.getElementById('processStepText').textContent = processText;
+
+      nodeOutput.className = `p-3 rounded-xl border border-emerald-500/50 bg-emerald-950/20 text-slate-200 transition-all`;
+      document.getElementById('outputStepText').textContent = outputText;
+      document.getElementById('endLoopBadge').classList.remove('hidden');
+
+      // Show & Style Emergency Banner
+      const banner = document.getElementById('emergencyBanner');
+      const bannerTag = document.getElementById('bannerTag');
+      const bannerIcon = document.getElementById('bannerIcon');
+      banner.classList.remove('hidden');
+
+      if (isMedical) {
+        banner.className = "border-b border-rose-500/40 bg-gradient-to-r from-rose-950 via-red-900/90 to-slate-900 transition-all duration-300";
+        bannerTag.className = "px-2 py-0.5 text-xs font-mono font-bold uppercase rounded bg-rose-600 text-white";
+        bannerTag.textContent = "911 MEDICAL EMERGENCY";
+        bannerIcon.className = "p-2 rounded-xl bg-rose-500/20 text-rose-300 shrink-0";
+      } else {
+        banner.className = "border-b border-blue-500/40 bg-gradient-to-r from-blue-950 via-indigo-900/90 to-slate-900 transition-all duration-300";
+        bannerTag.className = "px-2 py-0.5 text-xs font-mono font-bold uppercase rounded bg-blue-600 text-white";
+        bannerTag.textContent = "POLICE SECURITY EMERGENCY";
+        bannerIcon.className = "p-2 rounded-xl bg-blue-500/20 text-blue-300 shrink-0";
+      }
+
+      document.getElementById('bannerRouteBadge').textContent = routeBadgeText;
+      document.getElementById('bannerDescription').textContent = bannerDesc;
+
+      // Add GSM SMS Dispatch Log Entry
+      const smsPayload = `SMS TO ${targetAgency.toUpperCase()}: [SOS ALERT] Heartbeat: ${state.bpm} BPM | Oxygen: ${state.spo2}% | GPS: ${loc.coords} (${loc.name}) | Route: ${hasSig ? 'Direct GSM' : 'LoRa Gateway -> GSM'}`;
+      addLogEntry(
+        `${targetAgency.toUpperCase()} DISPATCH (${hasSig ? 'GSM' : 'LORA→GSM'})`,
+        smsPayload,
+        isMedical ? "rose" : "blue"
+      );
+    }
+
+    // Reset Flowchart Back to START (Matching END -> START Loop)
+    function resetToStart() {
+      state.activeAlert = null;
+
+      // Hide Emergency Banner
+      document.getElementById('emergencyBanner').classList.add('hidden');
+
+      // Reset Top Badges
+      document.getElementById('systemStateText').textContent = "STATE: MONITORING (START)";
+      document.getElementById('desktopStateBadge').className = "hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-mono font-semibold shadow-sm";
+      document.getElementById('mobileStateBadge').textContent = "MONITORING";
+      document.getElementById('mobileStateBadge').className = "lg:hidden px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30";
+
+      // Reset Radar Pin
+      const pinStatus = document.getElementById('pinStatusLabel');
+      const pinPulse = document.getElementById('pinPulseRing');
+      const pinCore = document.getElementById('pinCoreDot');
+      pinStatus.textContent = "● TRACKING";
+      pinStatus.className = "text-emerald-400 font-bold";
+      pinPulse.className = "animate-ping-slow absolute inline-flex h-8 w-8 rounded-full bg-emerald-400 opacity-50";
+      pinCore.className = "relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border-2 border-white shadow-md";
+
+      // Reset Flowchart Nodes
+      document.getElementById('node-decision').className = "p-3 rounded-xl border border-slate-700 bg-slate-950/80 transition-all";
+      document.getElementById('decisionStatusBadge').textContent = "Awaiting Button Press...";
+      document.getElementById('decisionStatusBadge').className = "text-[11px] font-mono text-slate-400";
+      document.getElementById('decisionConditionText').innerHTML = 'Evaluating: <span class="font-mono text-white">(Button == 1x OR 2x) &amp;&amp; (Signal == YES/NO)</span>';
+
+      document.getElementById('node-process').className = "p-3 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-400 transition-all";
+      document.getElementById('processStepText').textContent = "Standby. Sensors polling Heartbeat, SpO2, and GPS coordinates continuously.";
+
+      document.getElementById('node-output').className = "p-3 rounded-xl border border-slate-800 bg-slate-950/50 text-slate-400 transition-all";
+      document.getElementById('outputStepText').textContent = "Monitoring Station ready to display incoming emergency vitals and SMS dispatch confirmation.";
+      document.getElementById('endLoopBadge').classList.add('hidden');
+
+      addLogEntry("LOOP END → START", "Alert resolved. Flowchart looped back to START active monitoring state.", "emerald");
+      showToast("System looped back to START");
+    }
+
+    // Append Entry to Station Dispatch Log
+    function addLogEntry(tag, message, color) {
+      const container = document.getElementById('dispatchLogContainer');
+      const colorMap = {
+        emerald: { border: "border-emerald-500", text: "text-emerald-400" },
+        rose: { border: "border-rose-500", text: "text-rose-300" },
+        blue: { border: "border-blue-500", text: "text-blue-300" },
+        amber: { border: "border-amber-500", text: "text-amber-300" }
+      };
+      const style = colorMap[color] || colorMap.emerald;
+
+      const entry = document.createElement('div');
+      entry.className = `border-l-2 ${style.border} pl-3 py-1 bg-slate-900/40 rounded-r-lg`;
+      entry.innerHTML = `
+        <div class="flex items-center justify-between text-[11px] text-slate-500">
+          <span class="font-bold ${style.text}">[${tag}]</span>
+          <span>${getCurrentTime()}</span>
+        </div>
+        <div class="text-slate-200 mt-0.5 leading-relaxed">${message}</div>
+      `;
+      container.prepend(entry);
+    }
+
+    function clearLogs() {
+      const container = document.getElementById('dispatchLogContainer');
+      container.innerHTML = '';
+      addLogEntry("LOG CLEARED", "Monitoring Station terminal cleared. Active telemetry running.", "emerald");
+    }
+  </script>
+</body>
+</html>
